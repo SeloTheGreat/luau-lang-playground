@@ -1045,6 +1045,54 @@ public:
     }
 };
 
+// Simple set of functions for transforming diagnostic information into a JSON format and pushing it to a string stream
+namespace diagnostic {
+    enum class DiagnosticSeverity {
+        Error,
+        Warning,
+        Information,
+    };
+
+    constexpr std::string_view DiagnosticSeverity_toString(DiagnosticSeverity s) {
+        switch (s) {
+            case DiagnosticSeverity::Error: return "error";
+            case DiagnosticSeverity::Warning: return "warning";
+            case DiagnosticSeverity::Information: return "info";
+            default: return "error";
+        }
+    }
+
+    void pushTypeErrorDiagnostic(std::ostringstream& json, const Luau::TypeError& err) {
+        json << "{";
+        json << "\"type\":\"" << (Luau::get_if<Luau::SyntaxError>(&err.data) ? "SyntaxError" : "TypeError") << "\",";
+        json << "\"code\":" << err.code() << ",";
+        json << "\"severity\":\"error\",";
+        json << "\"moduleName\":" << ::json::string(err.moduleName) << ",";
+        json << "\"message\":" << ::json::string(Luau::toString(err)) << ",";
+        json << "\"startLine\":" << err.location.begin.line << ",";
+        json << "\"startCol\":" << err.location.begin.column << ",";
+        json << "\"endLine\":" << err.location.end.line << ",";
+        json << "\"endCol\":" << err.location.end.column;
+        json << "}";
+    }
+
+    void pushLintDiagnostic(std::ostringstream& json, const Luau::LintWarning& lint, DiagnosticSeverity severity) {
+        std::string lintName = Luau::LintWarning::getName(lint.code);
+
+        json << "{";
+        json << "\"type\":" << ::json::string(lintName) << ",";
+        json << "\"code\":" << lint.code << ",";
+        json << "\"severity\":\"" << DiagnosticSeverity_toString(severity) << "\",";
+        json << "\"moduleName\":\"main\","; //NOTE: REVISIT THIS LINE!
+        json << "\"message\":" << ::json::string(lint.text) << ",";
+        json << "\"startLine\":" << lint.location.begin.line << ",";
+        json << "\"startCol\":" << lint.location.begin.column << ",";
+        json << "\"endLine\":" << lint.location.end.line << ",";
+        json << "\"endCol\":" << lint.location.end.column;
+        json << "}";
+    }
+}
+
 // Global analysis state
 static std::unique_ptr<PlaygroundFileResolver> g_fileResolver;
 static std::unique_ptr<PlaygroundConfigResolver> g_configResolver;
@@ -1053,6 +1101,8 @@ static std::unique_ptr<Luau::Frontend> g_frontend;
 // Global configuration
 static Luau::Mode g_mode = Luau::Mode::Nonstrict;
 static bool g_useNewSolver = true;
+static bool g_reportLintsAsErrors = false;
+static Luau::LintOptions g_lintOptions;
 
 static std::unordered_map<std::string, std::string> parseSerializedFastFlags(std::string_view serializedFlags) {
     std::unordered_map<std::string, std::string> fastFlags;
@@ -1107,6 +1157,37 @@ static void registerFastFlags(std::unordered_map<std::string, std::string>& fast
     }
 }
 
+static std::vector<Luau::LintWarning::Code> parseSerializedLints(std::string_view serializedLints) {
+    std::vector<Luau::LintWarning::Code> lints;
+
+    while (!serializedLints.empty()) {
+        size_t comma = serializedLints.find(',');
+        std::string_view enabledLint = comma == std::string_view::npos
+            ? serializedLints
+            : serializedLints.substr(0, comma);
+
+        int lintCode = 0;
+        for (char c : enabledLint) {
+            if (c < '0' || c > '9') {
+                lintCode = 0;
+                break;
+            }
+            lintCode = lintCode * 10 + (c - '0');
+        }
+
+        // Ensure valid lint code, note that 0 is valid but will not define any behaviour within the linter
+        if (lintCode > 0 && lintCode < Luau::LintWarning::Code::Code__Count)
+            lints.push_back((Luau::LintWarning::Code)lintCode);
+
+        if (comma == std::string_view::npos)
+            break;
+
+        serializedLints.remove_prefix(comma + 1);
+    }
+
+    return lints;
+}
+
 static void ensureAnalysisInit() {
     if (g_frontend) return;
     
@@ -1119,22 +1200,19 @@ static void ensureAnalysisInit() {
     // Apply mode setting
     g_configResolver->config.mode = g_mode;
     
+    g_configResolver->config.lintErrors = g_reportLintsAsErrors;
+    
     Luau::FrontendOptions options;
     options.retainFullTypeGraphs = true;
     options.runLintChecks = true;
+    options.enabledLintWarnings = g_lintOptions;
     
     g_frontend = std::make_unique<Luau::Frontend>(
+        g_useNewSolver ? Luau::SolverMode::New : Luau::SolverMode::Old,
         g_fileResolver.get(),
         g_configResolver.get(),
         options
     );
-    
-    // Set solver mode
-    if (g_useNewSolver) {
-        g_frontend->useNewLuauSolver.store(Luau::SolverMode::New);
-    } else {
-        g_frontend->useNewLuauSolver.store(Luau::SolverMode::Old);
-    }
     
     // Register built-in types
     Luau::registerBuiltinGlobals(*g_frontend, g_frontend->globals, false);
@@ -1190,17 +1268,60 @@ EXPORT void luau_set_solver(bool useNew) {
     
     // Reset frontend to apply new solver (solver mode is set at initialization)
     if (g_frontend) {
-        if (g_useNewSolver) {
-            g_frontend->useNewLuauSolver.store(Luau::SolverMode::New);
-        } else {
-            g_frontend->useNewLuauSolver.store(Luau::SolverMode::Old);
-        }
+        g_frontend->setLuauSolverMode(g_useNewSolver ? Luau::SolverMode::New : Luau::SolverMode::Old);
         
         // Mark all files dirty to re-analyze with new solver
         if (g_fileResolver) {
             for (const auto& [name, _] : g_fileResolver->sources) {
                 g_frontend->markDirty(name);
             }
+        }
+    }
+}
+
+/**
+ * Sets whether lints are reported as an error or a warning.
+ */
+EXPORT void luau_set_lints_errors(bool reportLintsAsErrors) {
+    g_reportLintsAsErrors = reportLintsAsErrors;
+
+    // Update existing config resolver if initialized
+    if (g_configResolver) {
+        g_configResolver->config.lintErrors = g_reportLintsAsErrors;
+    }
+
+    // Mark all files dirty to re-analyze the reported lints to re-report
+    if (g_frontend && g_fileResolver) {
+        for (const auto& [name, _] : g_fileResolver->sources) {
+            g_frontend->markDirty(name);
+        }
+    }
+}
+
+/**
+ * Enable given lint string serialized as lint codes seperated by commas, such as: "1,2,3"
+ */
+EXPORT void luau_set_lints(const char* serializedLints) {
+    if (!serializedLints || !*serializedLints)
+        return;
+
+    std::vector<Luau::LintWarning::Code> lints = parseSerializedLints(serializedLints);
+
+    // Reset warningMask and enable the given lints
+    g_lintOptions.warningMask = 0;
+    for (auto lintCode : lints) {
+        g_lintOptions.enableWarning(lintCode);
+    }
+
+    // Update existing config resolver if initialized and copy over the new LintOptions
+    if (g_configResolver) {
+        g_configResolver->config.enabledLint = g_lintOptions;
+    }
+
+    // Mark all files dirty to re-analyze with the given lints
+    if (g_frontend && g_fileResolver) {
+        for (const auto& [name, _] : g_fileResolver->sources) {
+            g_frontend->markDirty(name);
         }
     }
 }
@@ -1260,23 +1381,27 @@ EXPORT const char* luau_get_diagnostics(const char* code) {
     std::ostringstream json;
     json << "{\"diagnostics\":[";
     
+    // Push type errors to the string stream
     bool first = true;
     for (const auto& error : result.errors) {
         if (!first) json << ",";
         first = false;
-        
-        json << "{";
-        json << "\"severity\":\"error\",";
-        json << "\"moduleName\":" << ::json::string(error.moduleName) << ",";
-        json << "\"message\":" << ::json::string(Luau::toString(error)) << ",";
-        json << "\"startLine\":" << error.location.begin.line << ",";
-        json << "\"startCol\":" << error.location.begin.column << ",";
-        json << "\"endLine\":" << error.location.end.line << ",";
-        json << "\"endCol\":" << error.location.end.column;
-        json << "}";
+        diagnostic::pushTypeErrorDiagnostic(json, error);
+    }
+    
+    // Push lint errors and warnings to the string stream
+    for (const auto& lint : result.lintResult.errors) {
+        json << ",";
+        diagnostic::pushLintDiagnostic(json, lint, diagnostic::DiagnosticSeverity::Error);
+    }
+
+    for (const auto& lint : result.lintResult.warnings) {
+        json << ",";
+        diagnostic::pushLintDiagnostic(json, lint, diagnostic::DiagnosticSeverity::Warning);
     }
     
     json << "]}";
+    
     return setResult(json.str());
 }
 

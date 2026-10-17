@@ -31,6 +31,8 @@ export type WorkerRequest =
   | { type: 'getModules' }
   | { type: 'setMode'; mode: number }
   | { type: 'setSolver'; isNew: boolean }
+  | { type: 'setLints'; serializedLints: string }
+  | { type: 'setLintsReportAsErrors'; reportLintsAsErrors: boolean }
   | { type: 'setFFlags'; serializedFlags: string }
   | { type: 'getBytecode'; code: string; optimizationLevel: number; debugLevel: number; outputFormat: number; showRemarks: boolean }
   | { type: 'registerModules'; modules: Record<string, string> }
@@ -45,6 +47,8 @@ export type WorkerResponse =
   | { type: 'getModules'; result: { modules: string[] } }
   | { type: 'setMode'; success: boolean }
   | { type: 'setSolver'; success: boolean }
+  | { type: 'setLints'; success: boolean }
+  | { type: 'setLintsReportAsErrors'; success: boolean }
   | { type: 'setFFlags'; success: boolean }
   | { type: 'getBytecode'; result: { success: boolean; bytecode: string; error?: string } }
   | { type: 'registerModules'; success: boolean }
@@ -180,7 +184,21 @@ self.onmessage = async (e: MessageEvent<WorkerRequest & { requestId: string }>) 
         respond(requestId, { type: 'setSolver', success: true });
         break;
       }
-
+      
+      case 'setLints': {
+        const module = await loadModule();
+        module.ccall("luau_set_lints", null, ['string'], [request.serializedLints]);
+        respond(requestId, { type: 'setLints', success: true })
+        break;
+      }
+      
+      case 'setLintsReportAsErrors': {
+        const module = await loadModule();
+        module.ccall("luau_set_lints_errors", null, ['boolean'], [request.reportLintsAsErrors]);
+        respond(requestId, { type: 'setLintsReportAsErrors', success: true })
+        break;
+      }
+      
       case 'setFFlags': {
         const module = await loadModule();
         module.ccall('luau_set_fflags', null, ['string'], [request.serializedFlags]);
