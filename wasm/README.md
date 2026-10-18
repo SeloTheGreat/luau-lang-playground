@@ -38,12 +38,12 @@ The build script will:
 - `luau_autocomplete(code: string, line: number, col: number)` - Get completion suggestions
 - `luau_hover(code: string, line: number, col: number)` - Get type info for hover
 - `luau_signature_help(code: string, line: number, col: number)` - Get function signatures
+- `luau_get_lints()` - Get a list of all lints
 
 ### Configuration
 
 - `luau_set_solver(useNew: boolean)` - Switch between the old or new solver
 - `luau_set_mode(mode: number)` - Set the type checking mode between non-strict (0), strict (1) and no-check (2)
-- `luau_set_lints_errors(reportLintsAsErrors: boolean)` - Set whether lints are reported as errors or warnings
 - `luau_set_lints(serializedLints: string)` - Enable lints serialized as lint codes seperated by commas
 - `luau_set_fflags(serializedFlags: string)` - Apply Luau fast flags/ints serialized as newline-delimited `"Name=Value"` entries
 
@@ -81,10 +81,13 @@ All functions return JSON strings. Example responses:
 // luau_hover
 { "content": "```luau\nprint: (string) -> ()\n```" }
 
-// luau_dump_bytecode
-{ "success": true, "bytecode": "..." }
-{ "success": true, "bytecode": "", "error": "Incomplete statement: ..." }
+// luau_get_lints
+{ "lints": [ "UknownGlobal", "DeprecatedGlobal", "..." ] }
 
 // luau_get_modules
 { "modules": ["module1", "module2", "someModule"] }
+
+// luau_dump_bytecode
+{ "success": true, "bytecode": "..." }
+{ "success": false, "bytecode": "", "error": "Incomplete statement: ..." }
 ```

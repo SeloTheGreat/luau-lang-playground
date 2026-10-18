@@ -32,7 +32,7 @@ export type WorkerRequest =
   | { type: 'setMode'; mode: number }
   | { type: 'setSolver'; isNew: boolean }
   | { type: 'setLints'; serializedLints: string }
-  | { type: 'setLintsReportAsErrors'; reportLintsAsErrors: boolean }
+  | { type: 'getLints' }
   | { type: 'setFFlags'; serializedFlags: string }
   | { type: 'getBytecode'; code: string; optimizationLevel: number; debugLevel: number; outputFormat: number; showRemarks: boolean }
   | { type: 'registerModules'; modules: Record<string, string> }
@@ -48,7 +48,7 @@ export type WorkerResponse =
   | { type: 'setMode'; success: boolean }
   | { type: 'setSolver'; success: boolean }
   | { type: 'setLints'; success: boolean }
-  | { type: 'setLintsReportAsErrors'; success: boolean }
+  | { type: 'getLints'; result: { lints: string[] } }
   | { type: 'setFFlags'; success: boolean }
   | { type: 'getBytecode'; result: { success: boolean; bytecode: string; error?: string } }
   | { type: 'registerModules'; success: boolean }
@@ -192,10 +192,11 @@ self.onmessage = async (e: MessageEvent<WorkerRequest & { requestId: string }>) 
         break;
       }
       
-      case 'setLintsReportAsErrors': {
+      case 'getLints': {
         const module = await loadModule();
-        module.ccall("luau_set_lints_errors", null, ['boolean'], [request.reportLintsAsErrors]);
-        respond(requestId, { type: 'setLintsReportAsErrors', success: true })
+        const resultJson = module.ccall("luau_get_lints", 'string', [], []);
+        const result = JSON.parse(resultJson) as { lints: string[] };
+        respond(requestId, { type: 'getLints', result });
         break;
       }
       

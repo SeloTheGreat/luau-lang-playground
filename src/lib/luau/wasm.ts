@@ -285,13 +285,11 @@ async function loadAnalysisWorker(): Promise<void> {
       if (robloxStudioFlagsPayload.flags) {
         await sendToWorker(analysis, 'setFFlags', { serializedFlags: robloxStudioFlagsPayload.flags });
       }
-      if (robloxStudioFlagsPayload.lints) {
-          await sendToWorker(analysis, 'setLints', { serializedLints: robloxStudioFlagsPayload.lints });
-      }
 
       const currentSettings = get(settings);
       await sendToWorker(analysis, 'setMode', { mode: modeToNum(currentSettings.mode) });
       await sendToWorker(analysis, 'setSolver', { isNew: currentSettings.solver === 'new' });
+      await sendToWorker(analysis, 'setLints', { serializedLints: currentSettings.lints.join(',') });
       initSettingsSync();
     }
   });
@@ -452,6 +450,19 @@ export async function getAvailableModules(): Promise<string[]> {
 }
 
 /**
+ * Get list of all Luau lints.
+ */
+export async function getLints(): Promise<string[]> {
+  try {
+    const response = await sendAnalysisRequest('getLints', {});
+    return response.result.lints;
+  } catch (error) {
+    console.error('[Luau] Failed to get availabe lints:', error);
+    return [];
+  }
+}
+
+/**
  * Set the type checking mode on the analysis worker.
  */
 export async function setLuauMode(mode: LuauMode): Promise<void> {
@@ -481,6 +492,17 @@ export async function setLuauSolver(solver: SolverMode): Promise<void> {
   }
 }
 
+/**
+ * Set enabled lints on the analysis worker.
+ */
+export async function setLints(lints: string): Promise<void> {
+  try {
+    await sendAnalysisRequest('setLints', { serializedLints: lints });
+  } catch(error) {
+    console.log('[Luau] Failed to set enabled lints:', error);
+  }
+}
+
 // Subscribe to settings changes and sync to WASM
 let settingsUnsubscribe: (() => void) | null = null;
 
@@ -491,6 +513,7 @@ export function initSettingsSync(): void {
     if (analysis.ready) {
       await setLuauMode(newSettings.mode);
       await setLuauSolver(newSettings.solver);
+      await setLints(newSettings.lints.join(','));
     }
   });
 }
@@ -606,7 +629,7 @@ export async function checkCode(): Promise<void> {
       for (const diag of diagnostics) {
         const location = `${fileName}:${diag.startLine + 1}:${diag.startCol + 1}`;
         const type = diag.severity === 'error' ? 'error' : diag.severity === 'warning' ? 'warn' : 'log';
-        appendOutput({ type, text: `${location}: ${diag.message}` });
+        appendOutput({ type, text: `${location}: ${diag.type}: ${diag.message}` });
       }
     }
   } catch (error) {

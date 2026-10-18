@@ -1083,7 +1083,6 @@ namespace diagnostic {
         json << "\"type\":" << ::json::string(lintName) << ",";
         json << "\"code\":" << lint.code << ",";
         json << "\"severity\":\"" << DiagnosticSeverity_toString(severity) << "\",";
-        json << "\"moduleName\":\"main\","; //NOTE: REVISIT THIS LINE!
         json << "\"message\":" << ::json::string(lint.text) << ",";
         json << "\"startLine\":" << lint.location.begin.line << ",";
         json << "\"startCol\":" << lint.location.begin.column << ",";
@@ -1101,7 +1100,6 @@ static std::unique_ptr<Luau::Frontend> g_frontend;
 // Global configuration
 static Luau::Mode g_mode = Luau::Mode::Nonstrict;
 static bool g_useNewSolver = true;
-static bool g_reportLintsAsErrors = false;
 static Luau::LintOptions g_lintOptions;
 
 static std::unordered_map<std::string, std::string> parseSerializedFastFlags(std::string_view serializedFlags) {
@@ -1200,8 +1198,6 @@ static void ensureAnalysisInit() {
     // Apply mode setting
     g_configResolver->config.mode = g_mode;
     
-    g_configResolver->config.lintErrors = g_reportLintsAsErrors;
-    
     Luau::FrontendOptions options;
     options.retainFullTypeGraphs = true;
     options.runLintChecks = true;
@@ -1280,26 +1276,8 @@ EXPORT void luau_set_solver(bool useNew) {
 }
 
 /**
- * Sets whether lints are reported as an error or a warning.
- */
-EXPORT void luau_set_lints_errors(bool reportLintsAsErrors) {
-    g_reportLintsAsErrors = reportLintsAsErrors;
-
-    // Update existing config resolver if initialized
-    if (g_configResolver) {
-        g_configResolver->config.lintErrors = g_reportLintsAsErrors;
-    }
-
-    // Mark all files dirty to re-analyze the reported lints to re-report
-    if (g_frontend && g_fileResolver) {
-        for (const auto& [name, _] : g_fileResolver->sources) {
-            g_frontend->markDirty(name);
-        }
-    }
-}
-
-/**
- * Enable given lint string serialized as lint codes seperated by commas, such as: "1,2,3"
+ * Set enabled lints.
+ * @param serializedLints A string serialized as lint codes seperated by commas, such as: "1,2,3"
  */
 EXPORT void luau_set_lints(const char* serializedLints) {
     if (!serializedLints || !*serializedLints)
@@ -1319,9 +1297,13 @@ EXPORT void luau_set_lints(const char* serializedLints) {
     }
 
     // Mark all files dirty to re-analyze with the given lints
-    if (g_frontend && g_fileResolver) {
-        for (const auto& [name, _] : g_fileResolver->sources) {
-            g_frontend->markDirty(name);
+    if (g_frontend) {
+        // Also copy over to existing frontend options
+        g_frontend->options.enabledLintWarnings = g_lintOptions;
+        if (g_fileResolver) {
+            for (const auto& [name, _] : g_fileResolver->sources) {
+                g_frontend->markDirty(name);
+            }
         }
     }
 }
@@ -1391,12 +1373,14 @@ EXPORT const char* luau_get_diagnostics(const char* code) {
     
     // Push lint errors and warnings to the string stream
     for (const auto& lint : result.lintResult.errors) {
-        json << ",";
+        if (!first) json << ",";
+        first = false;
         diagnostic::pushLintDiagnostic(json, lint, diagnostic::DiagnosticSeverity::Error);
     }
 
     for (const auto& lint : result.lintResult.warnings) {
-        json << ",";
+        if (!first) json << ",";
+        first = false;
         diagnostic::pushLintDiagnostic(json, lint, diagnostic::DiagnosticSeverity::Warning);
     }
     
@@ -1560,4 +1544,24 @@ EXPORT const char* luau_hover(const char* code, int line, int col) {
 EXPORT const char* luau_signature_help(const char* code, int line, int col) {
     // Simplified implementation - return empty for now
     return setResult("{\"signatures\":[]}");
+}
+
+/**
+ * Get a list of all available Luau lints.
+ */
+EXPORT const char* luau_get_lints() {
+    std::ostringstream json;
+    json << "{\"lints\":[";
+
+    bool first = true;
+    for (int i = 1; i < Luau::LintWarning::Code::Code__Count; i++) {
+        if (!first) json << ",";
+        first = false;
+
+        auto lintName = Luau::kWarningNames[i];
+        json << "\"" << lintName << "\"";
+    }
+
+    json << "]}";
+    return setResult(json.str());
 }
