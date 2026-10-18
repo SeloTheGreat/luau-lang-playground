@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { writable } from 'svelte/store';
   import { 
     settings, 
     setMode, 
@@ -93,14 +92,12 @@
     setTimeout(() => refreshDiagnostics(), 50);
   }
 
-  const allLintsEnabled = writable(false);
-
-  allLintsEnabled.subscribe(async (v) => {
+  async function setAllLintsEnabled(setEnabled: boolean) {
     const options = await getAllLintOptions();
     for (const { code } of options) {
-      setLintEnabled(code, v)
+      setLintEnabled(code, setEnabled)
     }
-  })
+  }
 
   let popoverEl: HTMLElement;
 </script>
@@ -275,7 +272,7 @@
               <input
                 type="checkbox"
                 checked={lintOptions.every((l) => (currentLints.includes(l.code)))}
-                onchange={(e) => allLintsEnabled.set(e.currentTarget.checked)}
+                onchange={(e) => setAllLintsEnabled(e.currentTarget.checked)}
                 class="w-4 h-4 rounded border-(--border-color) bg-(--bg-tertiary) accent-(--accent)"
               />
               <span class="text-xs text-(--text-secondary)">All lints enabled</span>
