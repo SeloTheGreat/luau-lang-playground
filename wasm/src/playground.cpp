@@ -37,9 +37,6 @@
 #include "Luau/ToString.h"
 #include "Luau/TypeInfer.h"
 
-// Feature flags for new solver
-LUAU_FASTFLAG(LuauSolverV2)
-
 // this is defined in a unit we exclude in our build system, so I guess we can do this.
 LUAU_FASTFLAGVARIABLE(LuauCodegenProtectData)
 
@@ -1189,9 +1186,6 @@ static std::vector<Luau::LintWarning::Code> parseSerializedLints(std::string_vie
 static void ensureAnalysisInit() {
     if (g_frontend) return;
     
-    // Set feature flags for the new solver before any initialization
-    FFlag::LuauSolverV2.value = g_useNewSolver;
-    
     g_fileResolver = std::make_unique<PlaygroundFileResolver>();
     g_configResolver = std::make_unique<PlaygroundConfigResolver>();
     
@@ -1257,10 +1251,6 @@ EXPORT void luau_set_mode(int mode) {
  */
 EXPORT void luau_set_solver(bool useNew) {
     g_useNewSolver = useNew;
-    
-    // Set feature flags for the new solver
-    // Both flags are needed: LuauSolverV2 enables the new solver globally,
-    FFlag::LuauSolverV2.value = useNew;
     
     // Reset frontend to apply new solver (solver mode is set at initialization)
     if (g_frontend) {
