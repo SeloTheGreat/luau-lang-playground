@@ -323,6 +323,8 @@
       </div>
     </div>
 
+    <div class="border-t border-(--border-color)"></div>
+
     <!-- Editor Section -->
     <div class="space-y-3">
       <span class="text-xs font-semibold text-(--text-secondary) uppercase tracking-wide">Editor</span>
