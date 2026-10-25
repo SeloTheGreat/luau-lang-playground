@@ -25,15 +25,14 @@ const STOPPED_ERROR = 'Execution stopped';
 const CANCELLED_ERROR = 'Cancelled';
 const ROBLOX_PC_STUDIO_FLAGS_URL = 'https://clientsettingscdn.roblox.com/v1/settings/application?applicationName=PCStudioApp';
 const ROBLOX_FAST_FLAG_KINDS = ['FFlag', 'FInt', 'DFFlag', 'DFInt'] as const;
-const ROBLOX_ENABLED_LINTS_FLAG = 'FStringStudioLuauLints';
 
 // Convert LuauMode to numeric value for WASM
 const modeToNum = (mode: LuauMode): number =>
   mode === 'strict' ? 1 : mode === 'nocheck' ? 2 : 0;
 
-let robloxStudioFlagPayloadPromise: Promise<{ flags: string | null; lints: string | null; }> | null = null;
+let robloxStudioFlagPayloadPromise: Promise<string | null> | null = null;
 
-async function getRobloxStudioFlagPayload(): Promise<{ flags: string | null; lints: string | null; }> {
+async function getRobloxStudioFlagPayload(): Promise<string | null> {
   if (!robloxStudioFlagPayloadPromise) {
     robloxStudioFlagPayloadPromise = fetch(ROBLOX_PC_STUDIO_FLAGS_URL)
       .then((response) => response.json())
@@ -49,23 +48,18 @@ async function getRobloxStudioFlagPayload(): Promise<{ flags: string | null; lin
           }
         }
 
-        const enabledLints = (applicationSettings ?? {})[ROBLOX_ENABLED_LINTS_FLAG];
-
-        return {
-          flags: lines.length > 0 ? lines.join('\n') : null,
-          lints: enabledLints ? enabledLints : null,
-        };
+        return lines.length > 0 ? lines.join('\n') : null;
       })
       .catch((error) => {
         console.warn('[Luau] Failed to sync Roblox Studio Luau flags:', error);
-        return { flags: null, lints: null, };
+        return null;
       });
   }
 
   return robloxStudioFlagPayloadPromise;
 }
 
-// All lints getter promise for use in GUI
+// Promise for getting all lints to use in GUI and settings
 let resolveGetAllLints: (value: LuauLint[]) => void;
 export const getAllLints = new Promise<LuauLint[]>((resolve) => {
   resolveGetAllLints = resolve;
@@ -288,9 +282,9 @@ async function loadAnalysisWorker(): Promise<void> {
 
   return loadWorker(analysis, 'Analysis', {
     postInit: async () => {
-      const robloxStudioFlagsPayload = await robloxStudioFlagsPromise;
-      if (robloxStudioFlagsPayload.flags) {
-        await sendToWorker(analysis, 'setFFlags', { serializedFlags: robloxStudioFlagsPayload.flags });
+      const robloxStudioFlags = await robloxStudioFlagsPromise;
+      if (robloxStudioFlags) {
+        await sendToWorker(analysis, 'setFFlags', { serializedFlags: robloxStudioFlags });
       }
 
       // Resolve lints promise
@@ -335,9 +329,9 @@ async function loadExecutionWorker(): Promise<void> {
   return loadWorker(execution, 'Execution', {
     checkTerminated: true,
     postInit: async () => {
-      const robloxStudioFlagsPayload = await robloxStudioFlagsPromise;
-      if (robloxStudioFlagsPayload.flags) {
-        await sendToWorker(execution, 'setFFlags', { serializedFlags: robloxStudioFlagsPayload.flags });
+      const robloxStudioFlags = await robloxStudioFlagsPromise;
+      if (robloxStudioFlags) {
+        await sendToWorker(execution, 'setFFlags', { serializedFlags: robloxStudioFlags });
       }
 
       const currentSettings = get(settings);
