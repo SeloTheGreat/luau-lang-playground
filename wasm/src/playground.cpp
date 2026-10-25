@@ -1165,7 +1165,7 @@ static std::vector<Luau::LintWarning::Code> parseSerializedLints(std::string_vie
 
         int lintCode = 0;
         for (char c : enabledLint) {
-            if (c < '0' || c > '9') {
+            if (c < '0' || c > '9' || lintCode > Luau::LintWarning::Code::Code__Count) {
                 lintCode = 0;
                 break;
             }
