@@ -5,6 +5,7 @@
 import type { LuauValue } from '$lib/utils/output';
 
 export interface LuauDiagnostic {
+  kind: 'error' | 'lint';
   type: string;
   code: number;
   severity: 'error' | 'warning' | 'info';
@@ -21,6 +22,11 @@ export interface LuauCompletion {
   kind: 'function' | 'variable' | 'property' | 'keyword' | 'constant' | 'type' | 'module';
   detail?: string;
   deprecated: boolean;
+}
+
+export interface LuauLint {
+  name: string;
+  code: number;
 }
 
 export interface ExecuteResult {
@@ -51,6 +57,10 @@ export interface SignatureResult {
       documentation?: string;
     }>;
   }>;
+}
+
+export interface LintsResult {
+  lints: LuauLint[];
 }
 
 /** The Emscripten module interface */

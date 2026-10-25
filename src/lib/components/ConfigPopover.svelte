@@ -18,8 +18,7 @@
     type OutputFormat,
     type KeybindingMode
   } from '$lib/stores/settings';
-  import { onMount } from 'svelte';
-  import { getLints } from "$lib/luau/wasm";
+  import { getAllLints } from "$lib/luau/wasm";
   import Button from '$lib/components/Button.svelte';
   import { Icon } from '$lib/icons';
 
@@ -70,51 +69,13 @@
     setTimeout(() => refreshDiagnostics(), 50);
   }
 
-  // Handle lints
-  let allLintOptions: Promise<{ label: string, code: number }[]> | null = null;
-
-  async function getAllLintOptions(): Promise<{ label: string, code: number }[]> {
-    if (!allLintOptions) {
-      const lintOptions: { label: string, code: number }[] = [];
-      const response = await getLints();
-
-      response.forEach((lintName, index) => {
-        const lintCode = index + 1;
-        lintOptions.push({
-          label: lintName,
-          code: lintCode,
-        });
-      })
-
-      return lintOptions;
-    }
-
-    return allLintOptions;
-  }
-
-  async function handleSetLintEnabled(lintCode: number, setEnabled: boolean) {
-    if (setEnabled) enableLint(lintCode);
-    else disableLint(lintCode);
+  async function handleSetLintEnabled(lintCode: number | 'all', setEnabled: boolean) {
+    if (setEnabled) await enableLint(lintCode);
+    else await disableLint(lintCode);
 
     const { refreshDiagnostics } = await import('$lib/editor/setup');
     setTimeout(() => refreshDiagnostics(), 50);
   }
-
-  async function handleSetAllLintsEnabled(setEnabled: boolean) {
-    if (!allLintOptions) return;
-    const options = await allLintOptions;
-    const lintSetter = setEnabled ? enableLint : disableLint;
-    for (const { code } of options) {
-      lintSetter(code);
-    }
-
-    const { refreshDiagnostics } = await import('$lib/editor/setup');
-    setTimeout(() => refreshDiagnostics(), 50);
-  }
-
-  onMount(() => {
-    allLintOptions = getAllLintOptions();
-  });
 
   let popoverEl: HTMLElement;
 </script>
@@ -280,45 +241,41 @@
         <span class="text-xs text-(--text-muted)">Enabled Lints</span>
 
         <div class="flex flex-col p-2 bg-(--bg-tertiary) max-h-[30vh] border-(--border-color) border rounded-md space-y-1">
-          {#if allLintOptions}
-            {#await allLintOptions}
-              <p class="text-xs text-(--text-secondary)">Loading lint options...</p>
-            {:then lintOptions}
-              {@const currentLints = $settings.lints}
+          {#await getAllLints}
+            <p class="text-xs text-(--text-secondary)">Loading lint options...</p>
+          {:then allLints} {#if allLints.length > 0}
+            {@const currentLints = $settings.lints}
 
-              <label class="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={lintOptions.every((l) => (currentLints.includes(l.code)))}
-                  onchange={(e) => handleSetAllLintsEnabled(e.currentTarget.checked)}
-                  class="w-4 h-4 rounded border-(--border-color) bg-(--bg-tertiary) accent-(--accent)"
-                />
-                <span class="text-xs text-(--text-secondary)">All lints enabled</span>
-              </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={currentLints === 'all' || currentLints.length === allLints.length}
+                onchange={(e) => handleSetLintEnabled('all', e.currentTarget.checked)}
+                class="w-4 h-4 rounded border-(--border-color) bg-(--bg-tertiary) accent-(--accent)"
+              />
+              <span class="text-xs text-(--text-secondary)">All lints enabled</span>
+            </label>
 
-              <div class="border-t border-(--border-color)"></div>
+            <div class="border-t border-(--border-color)"></div>
 
-              <div class="overflow-y-auto space-y-1">
-                {#each lintOptions as option (option.code)}
-                  <label class="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={currentLints.includes(option.code)}
-                      onchange={(e) => handleSetLintEnabled(option.code, e.currentTarget.checked)}
-                      class="w-4 h-4 rounded border-(--border-color) bg-(--bg-tertiary) accent-(--accent)"
-                    />
-                    <span class="text-xs text-(--text-secondary)">
-                      {option.label} (<a class="text-link" href={`https://luau.org/lint/#${option.label.toLowerCase()}-${option.code}`}>{option.code}</a>)
-                    </span>
-                  </label>
-                {/each}
-              </div>
-            {:catch getError}
-              <p class="text-xs text-red-500">Failed to load options. {getError}</p>
-            {/await}
+            <div class="overflow-y-auto space-y-1">
+              {#each allLints as option (option.code)}
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={currentLints === 'all' || currentLints.includes(option.code)}
+                    onchange={(e) => handleSetLintEnabled(option.code, e.currentTarget.checked)}
+                    class="w-4 h-4 rounded border-(--border-color) bg-(--bg-tertiary) accent-(--accent)"
+                  />
+                  <span class="text-xs text-(--text-secondary)">
+                    {option.name} (<a class="text-link" target="_blank" rel="noopener noreferrer" href={`https://luau.org/lint/#${option.name.toLowerCase()}-${option.code}`}>{option.code}</a>)
+                  </span>
+                </label>
+              {/each}
+            </div>
           {:else}
-            <p class="text-xs text-red-500">Failed to load options.</p>
-          {/if}
+            <p class="text-xs text-(--text-secondary)">No available lint options were found.</p>
+          {/if} {/await}
         </div>
       </div>
     </div>

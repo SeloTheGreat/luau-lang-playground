@@ -13,6 +13,7 @@ import type {
   ExecuteResult, 
   LuauDiagnostic,
   LuauCompletion,
+  LuauLint
 } from './types';
 import type { WorkerRequest, WorkerResponse } from './luau.worker';
 import LuauWorker from './luau.worker?worker';
@@ -63,6 +64,12 @@ async function getRobloxStudioFlagPayload(): Promise<{ flags: string | null; lin
 
   return robloxStudioFlagPayloadPromise;
 }
+
+// All lints getter promise for use in GUI
+let resolveGetAllLints: (value: LuauLint[]) => void;
+export const getAllLints = new Promise<LuauLint[]>((resolve) => {
+  resolveGetAllLints = resolve;
+});
 
 // Compiled WASM module - shared with workers to avoid recompilation
 // WebAssembly.Module is structured-clonable, so workers get the same compiled code
@@ -286,10 +293,18 @@ async function loadAnalysisWorker(): Promise<void> {
         await sendToWorker(analysis, 'setFFlags', { serializedFlags: robloxStudioFlagsPayload.flags });
       }
 
+      // Resolve lints promise
+      const getLintsResponse = await sendToWorker(analysis, 'getLints', {});
+      const allLints = getLintsResponse.result.lints;
+
+      resolveGetAllLints(allLints);
+
       const currentSettings = get(settings);
+      const currentLints = currentSettings.lints === 'all' ? allLints.map(v => v.code) : currentSettings.lints;
+
       await sendToWorker(analysis, 'setMode', { mode: modeToNum(currentSettings.mode) });
       await sendToWorker(analysis, 'setSolver', { isNew: currentSettings.solver === 'new' });
-      await sendToWorker(analysis, 'setLints', { serializedLints: currentSettings.lints.join(',') });
+      await sendToWorker(analysis, 'setLints', { serializedLints: currentLints.join(',') });
       initSettingsSync();
     }
   });
@@ -450,19 +465,6 @@ export async function getAvailableModules(): Promise<string[]> {
 }
 
 /**
- * Get list of all Luau lints.
- */
-export async function getLints(): Promise<string[]> {
-  try {
-    const response = await sendAnalysisRequest('getLints', {});
-    return response.result.lints;
-  } catch (error) {
-    console.error('[Luau] Failed to get availabe lints:', error);
-    return [];
-  }
-}
-
-/**
  * Set the type checking mode on the analysis worker.
  */
 export async function setLuauMode(mode: LuauMode): Promise<void> {
@@ -499,7 +501,7 @@ export async function setLints(lints: string): Promise<void> {
   try {
     await sendAnalysisRequest('setLints', { serializedLints: lints });
   } catch(error) {
-    console.log('[Luau] Failed to set enabled lints:', error);
+    console.error('[Luau] Failed to set enabled lints:', error);
   }
 }
 
@@ -511,9 +513,11 @@ export function initSettingsSync(): void {
   
   settingsUnsubscribe = settings.subscribe(async (newSettings) => {
     if (analysis.ready) {
+      const currentLints = newSettings.lints === 'all' ? (await getAllLints).map(v => v.code) : newSettings.lints;
+
       await setLuauMode(newSettings.mode);
       await setLuauSolver(newSettings.solver);
-      await setLints(newSettings.lints.join(','));
+      await setLints(currentLints.join(','));
     }
   });
 }
@@ -627,7 +631,7 @@ export async function checkCode(): Promise<void> {
       appendOutput({ type: 'log', text: '' });
       
       for (const diag of diagnostics) {
-        const location = `${fileName}:${diag.startLine + 1}:${diag.startCol + 1}`;
+        const location = `${fileName}(${diag.startLine + 1}, ${diag.startCol + 1})`;
         const type = diag.severity === 'error' ? 'error' : diag.severity === 'warning' ? 'warn' : 'log';
         appendOutput({ type, text: `${location}: ${diag.type}: ${diag.message}` });
       }

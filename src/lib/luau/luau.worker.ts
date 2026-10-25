@@ -11,6 +11,7 @@ import type {
   DiagnosticsResult, 
   AutocompleteResult, 
   HoverResult,
+  LintsResult,
   CreateLuauModule 
 } from './types';
 import createLuauModuleFactory from './luau-module.js';
@@ -48,7 +49,7 @@ export type WorkerResponse =
   | { type: 'setMode'; success: boolean }
   | { type: 'setSolver'; success: boolean }
   | { type: 'setLints'; success: boolean }
-  | { type: 'getLints'; result: { lints: string[] } }
+  | { type: 'getLints'; result: LintsResult }
   | { type: 'setFFlags'; success: boolean }
   | { type: 'getBytecode'; result: { success: boolean; bytecode: string; error?: string } }
   | { type: 'registerModules'; success: boolean }
@@ -195,7 +196,7 @@ self.onmessage = async (e: MessageEvent<WorkerRequest & { requestId: string }>) 
       case 'getLints': {
         const module = await loadModule();
         const resultJson = module.ccall("luau_get_lints", 'string', [], []);
-        const result = JSON.parse(resultJson) as { lints: string[] };
+        const result = JSON.parse(resultJson) as LintsResult;
         respond(requestId, { type: 'getLints', result });
         break;
       }

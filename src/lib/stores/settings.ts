@@ -2,6 +2,7 @@ import { writable, get } from 'svelte/store';
 import { parseStateFromHash } from '$lib/utils/decode';
 import { STORAGE_KEY, UI_STORAGE_KEY, KEYBINDINGS_STORAGE_KEY, defaultSettings } from '$lib/constants';
 import { detectEmbedMode } from '$lib/stores/embed';
+import { getAllLints } from '$lib/luau/wasm';
 
 export type LuauMode = "strict" | "nonstrict" | "nocheck";
 export type SolverMode = "new" | "old";
@@ -17,7 +18,7 @@ export interface PlaygroundSettings {
   mode: LuauMode;
   solver: SolverMode;
   // Lints
-  lints: number[];
+  lints: number[] | "all";
   // Compiler options
   optimizationLevel: OptimizationLevel;
   debugLevel: DebugLevel;
@@ -185,19 +186,29 @@ export function setSolver(solver: SolverMode): void {
   settings.update((s) => ({ ...s, solver }));
 }
 
-export function enableLint(lint: number): void {
+export async function enableLint(lint: number | 'all'): Promise<void> {
+  const allLints = await getAllLints;
   settings.update((s) => {
-    if (!s.lints.includes(lint)) {
-      s.lints.push(lint);
-    }
-    return s;
+    if (lint === 'all') return { ...s, lints: 'all' }; // Enable all
+
+    // Guard clause against duplicates
+    if (s.lints === 'all' || s.lints.includes(lint)) return s;
+
+    // Set to 'all' if all lints have been individually enabled
+    return { ...s, lints: s.lints.length + 1 >= allLints.length ? 'all' : [...s.lints, lint] };
   });
 }
 
-export function disableLint(lint: number): void {
-  settings.update((s) => (
-    { ...s, lints: s.lints.filter((v) => (v !== lint)) }
-  ));
+export async function disableLint(lint: number | 'all'): Promise<void> {
+  const allLints = await getAllLints;
+  settings.update((s) => {
+    if (lint === 'all') return { ...s, lints: [] }; // Disable all
+
+    // Get desired lints array
+    const lintsArray = s.lints === 'all' ? allLints.map(v => v.code) : s.lints;
+
+    return { ...s, lints: lintsArray.filter(v => v !== lint) };
+  });
 }
 
 export function setOptimizationLevel(level: OptimizationLevel): void {

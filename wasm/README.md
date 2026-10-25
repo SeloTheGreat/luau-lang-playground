@@ -44,7 +44,7 @@ The build script will:
 
 - `luau_set_solver(useNew: boolean)` - Switch between the old or new solver
 - `luau_set_mode(mode: number)` - Set the type checking mode between non-strict (0), strict (1) and no-check (2)
-- `luau_set_lints(serializedLints: string)` - Enable lints serialized as lint codes seperated by commas
+- `luau_set_lints(serializedLints: string)` - Enable lints serialized as lint codes separated by commas
 - `luau_set_fflags(serializedFlags: string)` - Apply Luau fast flags/ints serialized as newline-delimited `"Name=Value"` entries
 
 ### Modules
@@ -70,8 +70,16 @@ All functions return JSON strings. Example responses:
 
 // luau_get_diagnostics
 { "diagnostics": [
-  { "type": "SyntaxError", "severity": "error", "moduleName": "main", "code": 1014, "message": "...", "startLine": 0, "startCol": 0, "endLine": 0, "endCol": 5 }
-]}
+    {
+      "kind": "error", "type": "SyntaxError", "severity": "error", "moduleName": "main", "code": 1014, "message": "...",
+      "startLine": 0, "startCol": 0, "endLine": 0, "endCol": 5
+    },
+    {
+      "kind": "lint", "type": "DeprecatedGlobal", "severity": "warning", "code": 2, "message": "...",
+      "startLine": 0, "startCol": 0, "endLine": 0, "endCol": 5
+    }
+  ]
+}
 
 // luau_autocomplete
 { "items": [
@@ -82,7 +90,7 @@ All functions return JSON strings. Example responses:
 { "content": "```luau\nprint: (string) -> ()\n```" }
 
 // luau_get_lints
-{ "lints": [ "UknownGlobal", "DeprecatedGlobal", "..." ] }
+{ "lints": [{ "name": "UnknownGlobal", "code": 1 }, { "name": "DeprecatedGlobal", "code": 2 }, ...] }
 
 // luau_get_modules
 { "modules": ["module1", "module2", "someModule"] }

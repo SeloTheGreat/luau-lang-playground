@@ -1061,6 +1061,7 @@ namespace diagnostic {
 
     void pushTypeErrorDiagnostic(std::ostringstream& json, const Luau::TypeError& err) {
         json << "{";
+        json << "\"kind\":\"error\",";
         json << "\"type\":\"" << (Luau::get_if<Luau::SyntaxError>(&err.data) ? "SyntaxError" : "TypeError") << "\",";
         json << "\"code\":" << err.code() << ",";
         json << "\"severity\":\"error\",";
@@ -1077,6 +1078,7 @@ namespace diagnostic {
         std::string lintName = Luau::LintWarning::getName(lint.code);
 
         json << "{";
+        json << "\"kind\":\"lint\",";
         json << "\"type\":" << ::json::string(lintName) << ",";
         json << "\"code\":" << lint.code << ",";
         json << "\"severity\":\"" << DiagnosticSeverity_toString(severity) << "\",";
@@ -1254,7 +1256,11 @@ EXPORT void luau_set_solver(bool useNew) {
     
     // Reset frontend to apply new solver (solver mode is set at initialization)
     if (g_frontend) {
-        g_frontend->setLuauSolverMode(g_useNewSolver ? Luau::SolverMode::New : Luau::SolverMode::Old);
+        if (g_useNewSolver) {
+            g_frontend->useNewLuauSolver.store(Luau::SolverMode::New);
+        } else {
+            g_frontend->useNewLuauSolver.store(Luau::SolverMode::Old);
+        }
         
         // Mark all files dirty to re-analyze with new solver
         if (g_fileResolver) {
@@ -1267,10 +1273,10 @@ EXPORT void luau_set_solver(bool useNew) {
 
 /**
  * Set enabled lints.
- * @param serializedLints A string serialized as lint codes seperated by commas, such as: "1,2,3"
+ * @param serializedLints A string serialized as lint codes separated by commas, such as: "1,2,3"
  */
 EXPORT void luau_set_lints(const char* serializedLints) {
-    if (!serializedLints || !*serializedLints)
+    if (!serializedLints)
         return;
 
     std::vector<Luau::LintWarning::Code> lints = parseSerializedLints(serializedLints);
@@ -1549,7 +1555,9 @@ EXPORT const char* luau_get_lints() {
         first = false;
 
         auto lintName = Luau::kWarningNames[i];
-        json << "\"" << lintName << "\"";
+
+        json << "{\"name\":" << ::json::string(lintName) << ",";
+        json << "\"code\":" << i << "}";
     }
 
     json << "]}";
